@@ -1,0 +1,16 @@
+Package                           Version
+--------------------------------- -----------
+annotated-types                   0.7.0      
+fastapi                           0.116.1
+firebase-admin                    6.9.0
+jsonschema                        4.24.0
+jsonschema-specifications         2025.4.1
+mongoengine                       0.29.1
+pydantic                          2.11.7
+pymongo                           4.13.2
+python-dotenv                     1.1.1
+python-multipart                  0.0.12
+requests                          2.32.4
+starlette                         0.47.2
+typing_extensions                 4.14.1
+uvicorn                           0.35.0
