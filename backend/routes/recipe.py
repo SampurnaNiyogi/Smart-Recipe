@@ -58,4 +58,5 @@ async def create_recipe(recipe: Recipe):
     if existing_recipe:
         raise HTTPException(status_code=404, detail = "Recipe already exists")
     
-    db.recipes.insert_one(recipe.model_dump())    
+    db.recipes.insert_one(recipe.dict(exclude={"_id"}))    
+    return {"message": "Recipe created successfully"}  

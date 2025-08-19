@@ -10,37 +10,20 @@
                 <v-text-field label="Recipe Name" v-model="form.name" />
                 <v-text-field label="Add Description" v-model="form.description" />
 
-                <v-text-field
-                  label="Add Ingredient"
-                  v-model="newIngredient"
-                  append-inner-icon="mdi-plus"
-                  @click:append-inner="addIngredient"
-                />
-
-                <v-row>
-                  <v-col cols="6">
-                    <v-text-field label="Quantity" v-model="form.quantity" />
-                  </v-col>
-                  <v-col cols="6">
-                    <v-text-field label="Unit" v-model="form.unit" />
-                  </v-col>
-                </v-row>
-
-                <v-btn variant="tonal" @click="addIngredient">+ Add Ingredient</v-btn>
+                <v-text-field label="Add Ingredient" v-model="form.ingredients" />
+                <v-text-field label="Add Instruction" v-model="form.instructions" />
               </v-col>
 
               <v-col cols="12" md="6">
-                <v-file-input
-                  label="Upload Image"
-                  accept="image/*"
-                  v-model="form.image"
-                  prepend-icon="mdi-upload"
+                <v-text-field
+                  label="Upload Image URL"
+                  v-model="form.image_url"
                 />
 
                 <v-select
                   :items="categories"
                   label="Choose category"
-                  v-model="form.category"
+                  v-model="form.category_id"
                   item-title="name"
                   item-value="_id"
                 />
@@ -48,14 +31,14 @@
                 <v-select
                   :items="cuisines"
                   label="Choose cuisine"
-                  v-model="form.cuisine"
+                  v-model="form.cuisine_id"
                   item-title="name"
                   item-value="_id"
                 />
                 <v-select 
                   :items="diets"
                   label="Choose diets"
-                  v-model="form.diets"
+                  v-model="form.diet_id"
                   item-title="name"
                   item-value="_id"
                 />
@@ -80,17 +63,14 @@ export default {
       form: {
         name: '',
         description: '',
-        ingredients: [],
-        quantity: '',
-        unit: '',
-        category: '',
-        cuisine: '',
-        image: null
+        ingredients: '',
+        instructions: '',
+        category_id: '',
+        cuisine_id: '',
+        diet_id: '',
+        image_url: '',
       },
-      newIngredient: '',
-      selectedCuisine: null,
-      selectedCategory: null,
-      selectedDiet: null
+      
     }
   },
   mounted() {
@@ -120,16 +100,45 @@ export default {
           this.diets = data;
         });
     },
-    addIngredient() {
-      if (this.newIngredient) {
-        this.form.ingredients.push(this.newIngredient)
-        this.newIngredient = ''
+    async submitRecipe() {
+      try {
+        const response = await fetch("http://127.0.0.1:8000/create_recipe", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(this.form)
+        });
+    
+    if (!response.ok) {
+          const errorData = await response.json();
+          alert(`Error: ${errorData.detail}`);
+          return;
+        }
+
+        const result = await response.json();
+        console.log("Recipe Created:", result);
+        alert("Recipe Created Successfully");
+
+        // Reset form after submission
+        this.form = {
+          name: '',
+          description: '',
+          ingredients: '',
+          instruction: '',
+          category_id: '',
+          cuisine_id: '',
+          diet_id: '',
+          image_url: ''
+        };
+
+      } catch (err) {
+        console.error("Failed to create recipe:", err);
+        alert("Something went wrong while creating the recipe.");
       }
-    },
-    submitRecipe() {
-      console.log('Recipe Submitted:', this.form)
-      alert('Recipe Submitted!')
     }
   }
 }
+    
+    
 </script>
