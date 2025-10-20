@@ -1,47 +1,65 @@
 <template>
   <v-container>
-        <v-row class="mt-8">
-          <!-- Main Recipe Column -->
-          <v-col cols="12">
-            <v-btn variant="text" @click="$router.back()" class="mb-4">← Back to Recipes</v-btn>
+    <v-row class="mt-8">
+      <v-col cols="12">
+        <v-btn variant="text" @click="$router.back()" class="mb-4">← Back to Recipes</v-btn>
             <v-card :loading="loading">
               <v-img :src="recipe.image_url || 'https://placehold.co/1200x400/E0F2F7/00695C?text=No+Image'" height="300px" cover />
               <v-card-title class="text-h5 mt-2">{{ recipe.name }}</v-card-title>
               <v-card-subtitle>
                 {{ recipe.cuisine?.name }} | {{ recipe.category?.name }} | {{ recipe.diet?.name }}
               </v-card-subtitle>
-              <v-card-text>
-                <p class="mb-4">{{ recipe.description || 'No description available.' }}</p>
-                <v-divider class="my-4"></v-divider>
-                <strong>Ingredients:</strong>
-                <p>{{ recipe.ingredients }}</p>
-                <v-divider class="my-4"></v-divider>
-                <strong>Instructions:</strong>
-                <p style="white-space: pre-wrap;">{{ recipe.instructions }}</p>
-              </v-card-text>
-            </v-card>
-             <v-alert v-if="error" type="error" dense class="mt-4">{{ error }}</v-alert>
-          </v-col>
-        </v-row>
+              
+        <v-card-text>
+          <p class="mb-4">{{ recipe.description || 'No description available.' }}</p>
+          <v-divider class="my-4"></v-divider>
+          
+          <strong>Ingredients:</strong>
+          <p class="text-caption text-grey">Click an ingredient to find substitutes</p>
+          <div class="mt-2">
+            <v-chip
+              v-for="(ingredient, i) in ingredientList"
+              :key="i"
+              class="ma-1"
+              @click="findSubstitutes(ingredient)"
+              color="teal"
+              variant="outlined"
+            >
+              <v-icon start icon="mdi-help-circle-outline"></v-icon>
+              {{ ingredient }}
+            </v-chip>
+          </div>
+          <v-divider class="my-4"></v-divider>
+          <strong>Instructions:</strong>
+          <p style="white-space: pre-wrap;">{{ recipe.instructions }}</p>
+        </v-card-text>
+        </v-card>
+        
+      </v-col>
+    </v-row>
 
-        <!-- NEW: Similar Recipes Section -->
-        <v-row class="mt-8" v-if="similarRecipes.length > 0">
-          <v-col cols="12">
-            <h3 class="text-h6">You Might Also Like</h3>
-            <v-divider class="my-4"></v-divider>
-          </v-col>
-          <v-col v-for="similar in similarRecipes" :key="similar._id" cols="12" sm="6" md="3">
-            <v-card :to="`/recipe/details/${similar._id}`">
-              <v-img :src="similar.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
-              <v-card-title class="text-subtitle-1">{{ similar.name }}</v-card-title>
-              <v-card-subtitle>{{ similar.cuisine?.name }}</v-card-subtitle>
-            </v-card>
-          </v-col>
-        </v-row>
-        <!-- End of new section -->
-
-      </v-container>
-    
+    <v-dialog v-model="substituteDialog" max-width="400">
+      <v-card>
+        <v-card-title>
+          Substitutes for "{{ selectedIngredient }}"
+        </v-card-title>
+        <v-card-text>
+          <v-list v-if="substitutes.length > 0">
+            <v-list-item
+              v-for="(sub, i) in substitutes"
+              :key="i"
+              :title="sub"
+            ></v-list-item>
+          </v-list>
+          <p v-else>No common substitutes found in our database.</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" text @click="substituteDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+    </v-container>
 </template>
 
 <script>
@@ -53,7 +71,10 @@ export default {
       recipe: {},
       similarRecipes: [], // New data property for recommendations
       loading: false,
-      error: ""
+      error: "",
+      substituteDialog: false, 
+      selectedIngredient: '', 
+      substitutes: []
     };
   },
   mounted() {
@@ -66,6 +87,13 @@ export default {
       this.recipe = {};
       this.similarRecipes = [];
       this.fetchDataForRecipe();
+    }
+  },
+  computed: {
+    ingredientList() {
+      if (!this.recipe.ingredients) return [];
+      // Split by comma and trim whitespace
+      return this.recipe.ingredients.split(',').map(item => item.trim());
     }
   },
   methods: {
@@ -118,6 +146,36 @@ export default {
       } catch (e) {
         console.error("Could not load similar recipes:", e.message);
         // Don't show a blocking error for this, it's non-critical
+      }
+    },
+    async findSubstitutes(ingredient) {
+      // Clean up the ingredient string to find the main noun
+      // e.g., "1/4 cup Onions" -> "Onions"
+      // e.g., "tofu (firm)" -> "tofu"
+      const cleanIngredient = ingredient
+        .replace(/[\d/]+( cup| tbsp| tsp| tablespoon| teaspoon)?s?/i, '')
+        .replace(/\(.*\)/, '') // Remove text in parentheses
+        .trim();
+        
+      if (!cleanIngredient) return;
+
+      this.selectedIngredient = ingredient; // Show the full original name in dialog
+      this.substitutes = [];
+      this.substituteDialog = true;
+      
+      const authStore = useAuthStore();
+      const token = authStore.token;
+      if (!token) return;
+
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/recipe/substitutes/${cleanIngredient}`, {
+           headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error("Could not fetch substitutes");
+        this.substitutes = await res.json();
+      } catch (e) {
+        console.error("Substitute Error:", e.message);
+        this.substitutes = []; // Reset on error
       }
     }
   }

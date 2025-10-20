@@ -1,11 +1,10 @@
 from pydantic import BaseModel, ConfigDict, Field, BeforeValidator
-from typing import List, Optional
+from typing import List, Optional, ClassVar
 from bson import ObjectId
 from typing_extensions import Annotated
 from beanie import Document, Link, PydanticObjectId  # Import Link & PydanticObjectId
+from pymongo import IndexModel, TEXT
 
-# This is no longer needed for the Recipe document, 
-# but you can keep it if other Pydantic models use it.
 PyObjectId = Annotated[str, BeforeValidator(str)]
 
 # --- NEW Pydantic Model for CREATING recipes ---
@@ -42,7 +41,7 @@ class Diet(Document):
 
 # --- UPDATED Recipe Document Model ---
 class Recipe(Document):
-    # 'id' is handled automatically by Beanie
+    
     name: str
     cuisine: Link[Cuisine]         # Changed from cuisine_id
     instructions: str
@@ -52,6 +51,13 @@ class Recipe(Document):
     description: Optional[str] = None
     image_url: Optional[str] = None
     
-    
     class Settings:
-        name = "recipes" # This is your collection name
+        name = "recipes"
+        
+        # --- ADD ClassVar TYPE HINT HERE ---
+        indexes: ClassVar = [
+            IndexModel(
+                [("name", TEXT), ("description", TEXT), ("ingredients", TEXT)],
+                name="recipe_text_search_index"
+            )
+        ]

@@ -9,31 +9,54 @@ from fastapi import Depends
 from typing import Optional
 import datetime
 from pydantic import ValidationError
-recipe = APIRouter()
+from services.substitutes import get_substitutes
 
+recipe = APIRouter()
+@recipe.get(
+    "/recipe/substitutes/{ingredient_name}", 
+    response_model=List[str],
+    summary="Get substitutes for an ingredient"
+)
+async def get_ingredient_substitutes(
+    ingredient_name: str,
+    current_user: User = Depends(get_current_user) # Secure the endpoint
+):
+    """
+    Provides a list of potential substitutes for a given ingredient.
+    """
+    substitutes = get_substitutes(ingredient_name)
+    return substitutes
 #Fetch details of each recipe
 @recipe.get("/recipe", response_model=List[Recipe])
 async def get_all_recipes(
     cuisine_id: Optional[PydanticObjectId] = Query(None),
     category_id: Optional[PydanticObjectId] = Query(None),
-    diet_id: Optional[PydanticObjectId] = Query(None)
+    diet_id: Optional[PydanticObjectId] = Query(None),
+    search_query: Optional[str] = Query(None)
 ):
     
-    # Build a list of search queries
-    find_queries = []
+    filter_conditions = {}
+
+    # 1. Add text search if provided
+    if search_query:
+        # Use MongoDB's $text operator
+        filter_conditions["$text"] = {"$search": search_query}
+
+    # 2. Add Link filters (using raw Mongo query syntax for Links)
     if cuisine_id:
-        # Query on the linked document's ID
-        find_queries.append(Recipe.cuisine.id == cuisine_id)
+        filter_conditions["cuisine.$id"] = cuisine_id
+    
     if category_id:
-        find_queries.append(Recipe.category.id == category_id)
+        filter_conditions["category.$id"] = category_id
+    
     if diet_id:
-        find_queries.append(Recipe.diet.id == diet_id)
+        filter_conditions["diet.$id"] = diet_id
         
-    recipes = await Recipe.find(*find_queries, fetch_links=True).to_list()
+    # 3. Execute the combined query
+    # We use .find(filter_conditions) which accepts a raw Mongo query dict
+    recipes = await Recipe.find(filter_conditions, fetch_links=True).to_list()
     
-    # if not recipes:
-    #     raise HTTPException(status_code=404, detail="Recipe not found")
-    
+    # ... (the 'if not recipes' check you removed is still good to keep removed) ...
     
     return recipes
 
