@@ -1,7 +1,5 @@
 <template>
-  <v-app>
-    <v-main>
-      <v-container>
+  <v-container>
         <v-row class="mt-8">
           <!-- Recipe List -->
           <v-col cols="12" md="8">
@@ -65,8 +63,7 @@
           </v-col>
         </v-row>
       </v-container>
-    </v-main>
-  </v-app>
+    
 </template>
 
 <script>

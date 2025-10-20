@@ -1,10 +1,14 @@
 from fastapi import APIRouter, HTTPException, Query, status
-# from config.db import db  <- No longer need to import db directly
 from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn # Import RecipeIn
 from typing import List, Optional
-# from bson import ObjectId <- No longer needed
-from beanie import PydanticObjectId # Import for ID validation
-
+from beanie import PydanticObjectId 
+from models.users import User
+from routes.authentication import get_current_user
+from models.history import UserViewHistory 
+from fastapi import Depends 
+from typing import Optional
+import datetime
+from pydantic import ValidationError
 recipe = APIRouter()
 
 #Fetch details of each recipe
@@ -25,29 +29,50 @@ async def get_all_recipes(
     if diet_id:
         find_queries.append(Recipe.diet.id == diet_id)
         
-    # Run the query. fetch_links=True automatically populates
-    # recipe.cuisine, recipe.category, and recipe.diet
     recipes = await Recipe.find(*find_queries, fetch_links=True).to_list()
     
-    if not recipes:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+    # if not recipes:
+    #     raise HTTPException(status_code=404, detail="Recipe not found")
     
-    # No more manual for-loops to replace IDs!
     
     return recipes
 
 #Fetch details about a recipe
 @recipe.get("/recipe/{recipe_id}", response_model=Recipe)
-async def get_recipe(recipe_id: PydanticObjectId):
-    # .get() with fetch_links=True is all you need
-    recipe = await Recipe.get(recipe_id, fetch_links=True)
+async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_current_user)):
+    
+    try:
+        recipe_obj_id = PydanticObjectId(recipe_id)
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="Invalid recipe ID format")
+
+    recipe = await Recipe.get(recipe_obj_id, fetch_links=True)
     
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
-    # No more manual lookups!
+    if current_user:
+        # To avoid spamming the DB, only log if it hasn't been logged in the last hour
+        one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+        existing_view = await UserViewHistory.find_one(
+            UserViewHistory.user == current_user,
+            UserViewHistory.recipe.id == recipe_obj_id,
+            UserViewHistory.viewed_at > one_hour_ago
+        )
+        
+        if not existing_view:
+            try:
+                # Create and save the view history record
+                view_log = UserViewHistory(user=current_user, recipe=recipe)
+                await view_log.insert()
+                print(f"User {current_user.user_name} viewed recipe {recipe.name}")
+            except Exception as e:
+                # Fail silently, logging the view is not critical
+                print(f"Error logging view history: {e}")
     
+
     return recipe
+    
 
 
 @recipe.post("/create_recipe", status_code=status.HTTP_201_CREATED)

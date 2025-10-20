@@ -11,22 +11,24 @@ import os
 from dotenv import load_dotenv 
 from models.users import User
 from models.recipe import Recipe, Category, Cuisine, Diet
-
+from routes.recommendations import recommendation_router
+from services.recommendations import build_recommendation_model
+from contextlib import asynccontextmanager
+from models.history import UserViewHistory
 load_dotenv()
-app = FastAPI()
 
-@app.on_event("startup")
-async def on_startup():
-    """
-    Initialize Beanie and the async database client.
-    """
-    # Create the AsyncIOMotorClient
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Code to run on startup
+    print("Application startup...")
+    
+    # --- START FIX ---
+    # Initialize the database client and Beanie here
+    print("Initializing database connection and Beanie...")
     client = motor.motor_asyncio.AsyncIOMotorClient(
         os.getenv("MONGO_URI")
     )
-    
-    # Get the database name (you called it 'SmartRecipe' in config/db.py)
-    database = client.SmartRecipe
+    database = client.SmartRecipe # Get the database name
 
     # Initialize Beanie with all your Document models
     await init_beanie(
@@ -36,15 +38,33 @@ async def on_startup():
             Category,
             Cuisine,
             Diet,
-            Recipe
+            Recipe,
+            UserViewHistory
         ]
     )
+    print("Beanie initialized.")
+    # --- END FIX ---
+
+    # Now it's safe to call the recommendation model build
+    await build_recommendation_model()
+    
+    yield
+    
+    # Code to run on shutdown (if any)
+    print("Application shutdown.")
+
+app = FastAPI(lifespan=lifespan)
+
+# Remove the old @app.on_event("startup") function
+# It is now handled by the lifespan context manager
 
 app.include_router(recipe)
 app.include_router(cuisine)
 app.include_router(category)
 app.include_router(diet)
 app.include_router(auth_router)
+app.include_router(recommendation_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  

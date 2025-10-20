@@ -1,7 +1,5 @@
 <template>
-  <v-app>
-    <v-main class="d-flex justify-center align-center" style="min-height: 100vh; background-color: #e0f2f7;"> 
-      <v-card class="pa-6" width="450" elevation="5"> 
+  <v-card class="pa-6" width="450" elevation="5"> 
 
         <v-tabs v-model="tab" grow background-color="teal darken-1" dark>
           <v-tab value="login">Sign In</v-tab>
@@ -140,8 +138,7 @@
         </v-alert>
 
       </v-card>
-    </v-main>
-  </v-app>
+    
 </template>
 
 <script setup>

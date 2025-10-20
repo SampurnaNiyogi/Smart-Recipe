@@ -1,6 +1,5 @@
 <template>
-  <v-app>
-    <v-main>
+  
       <v-container>
         <!-- Profile Card -->
         <v-card class="pa-8 mt-12 mx-auto" max-width="500" outlined :loading="loading">
@@ -47,8 +46,7 @@
 
         </v-card>
       </v-container>
-    </v-main>
-  </v-app>
+      
 </template>
 
 <script>

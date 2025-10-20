@@ -1,6 +1,5 @@
 <template>
-  <v-app>
-    <v-main>
+  
       <!-- Chat Layout -->
       <v-container fluid class="pa-0 fill-height">
         <v-row no-gutters class="h-100">
@@ -33,8 +32,7 @@
           </v-col>
         </v-row>
       </v-container>
-    </v-main>
-  </v-app>
+    
 </template>
 
 <script>

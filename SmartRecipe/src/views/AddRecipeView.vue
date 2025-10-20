@@ -1,6 +1,5 @@
 <template>
-  <v-app>
-    <v-main>
+  
       <v-container>
         <v-card class="pa-6 mt-8" outlined>
           <v-card-title>Add/Edit your recipes</v-card-title>
@@ -49,8 +48,7 @@
           </v-card-text>
         </v-card>
       </v-container>
-    </v-main>
-  </v-app>
+    
 </template>
 
 <script>

@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordBearer
 from models.auth import SendOtpRequest, Token, VerifyOtpRequest
 from models.users import User, UserSignUp, UserOut
 import random
+from uuid import UUID
 load_dotenv()
 
 otp_storage = {} #new addition
@@ -131,21 +132,46 @@ async def verify_otp_and_login(request: VerifyOtpRequest):
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Could not validate credentials - Invalid Token", # More specific detail
         headers={"WWW-Authenticate": "Bearer"},
     )
+    user_not_found_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, # Still 401, as invalid token led here
+        detail="Could not validate credentials - User Not Found",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     try:
+        print(f"Attempting to decode token: {token[:10]}...") # Log received token (truncated)
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_uuid: str = payload.get("sub")
-        if user_uuid is None:
+        user_uuid_str: str = payload.get("sub")
+        print(f"Token decoded, sub (UUID string): {user_uuid_str}") # Log extracted UUID string
+
+        if user_uuid_str is None:
+            print("Error: 'sub' claim missing in token payload.")
             raise credentials_exception
-    except JWTError:
+
+        # --- Convert string back to UUID object ---
+        try:
+            user_uuid = UUID(user_uuid_str)
+            print(f"Searching for user with UUID object: {user_uuid}")
+        except ValueError:
+            print(f"Error: Invalid UUID format in 'sub' claim: {user_uuid_str}")
+            raise credentials_exception
+        # --- End of conversion ---
+
+    except JWTError as e:
+        print(f"JWT Decoding Error: {e}") # Log the specific JWT error
         raise credentials_exception
 
-    # Fetch user by UUID from the database
-    user = await User.find_one(User.uuid == user_uuid) # Assuming your User model has 'uuid'
+    # Fetch user by UUID object from the database
+    # Ensure your User model's uuid field is actually of type UUID
+    user = await User.find_one(User.uuid == user_uuid) # Query using the UUID object
     if user is None:
-        raise credentials_exception
+        print(f"Error: User with UUID {user_uuid} not found in database.")
+        raise user_not_found_exception # Use the specific exception
+
+    print(f"User found: {user.user_name}")
     return user
 
 # --- NEW ENDPOINT ---

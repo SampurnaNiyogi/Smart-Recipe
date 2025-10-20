@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, BeforeValidator
+from pydantic import BaseModel, ConfigDict, Field, BeforeValidator
 from typing import List, Optional
 from bson import ObjectId
 from typing_extensions import Annotated
@@ -52,7 +52,6 @@ class Recipe(Document):
     description: Optional[str] = None
     image_url: Optional[str] = None
     
-    # We remove the old Pydantic 'model_config'
     
     class Settings:
         name = "recipes" # This is your collection name

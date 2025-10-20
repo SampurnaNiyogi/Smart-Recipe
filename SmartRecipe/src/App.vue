@@ -1,7 +1,11 @@
 <template>
   <v-app>
     <NavBar v-if="!isLoginPage" />
-    <router-view />
+    
+    <v-main>
+      <router-view />
+    </v-main>
+    
   </v-app>
 </template>
 
