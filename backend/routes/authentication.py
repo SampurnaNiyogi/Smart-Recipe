@@ -1,10 +1,10 @@
 # In routes/authentication.py
-from fastapi import APIRouter, HTTPException, status
+from fastapi import Depends,APIRouter, HTTPException, status
 from typing import Optional
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
-from jose import jwt
+from jose import jwt, JWTError
 from fastapi.security import OAuth2PasswordBearer
 from models.auth import SendOtpRequest, Token, VerifyOtpRequest
 from models.users import User, UserSignUp, UserOut
@@ -127,3 +127,32 @@ async def verify_otp_and_login(request: VerifyOtpRequest):
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_uuid: str = payload.get("sub")
+        if user_uuid is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    # Fetch user by UUID from the database
+    user = await User.find_one(User.uuid == user_uuid) # Assuming your User model has 'uuid'
+    if user is None:
+        raise credentials_exception
+    return user
+
+# --- NEW ENDPOINT ---
+@auth_router.get("/users/me", response_model=UserOut)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    Get the details of the currently authenticated user.
+    """
+    # UserOut model should automatically handle the response structure
+    return current_user

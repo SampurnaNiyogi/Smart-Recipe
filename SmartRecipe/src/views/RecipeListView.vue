@@ -13,8 +13,8 @@
                   <v-img :src="recipe.image_url" height="140px" />
                   <v-card-text>
                     <strong>{{ recipe.name }}</strong><br />
-                    • {{ recipe.cuisine_id }}<br />
-                    • {{ recipe.category_id}}
+                      • Cuisine: {{ recipe.cuisine ? recipe.cuisine.name : 'N/A' }}<br />
+                      • Category: {{ recipe.category ? recipe.category.name : 'N/A' }}
                   </v-card-text>
                 </v-card>
               </v-col>
@@ -70,6 +70,7 @@
 </template>
 
 <script>
+import { useAuthStore } from '../stores/auth';
 export default {
   name: "RecipeListView",
   data() {
@@ -91,14 +92,60 @@ export default {
   },
   methods: {
     fetchRecipes(params = {}) {
+      const authStore = useAuthStore(); // Make sure this line is inside the method or component setup
+      const token = authStore.token;
+
+      // --- Check if token exists ---
+       if (!token) {
+         console.error("Authentication error: No token found.");
+         // Optionally redirect to login or show a message
+         // This might happen if the user's session expires and they try to filter
+         // For the initial load, the router guard should prevent access anyway.
+         alert("Your session may have expired. Please log in again.");
+         authStore.logout(); // Clear any invalid state
+         this.$router.push('/login');
+         return;
+       }
+       // --- End of new code ---
+
+
       let url = "http://127.0.0.1:8000/recipe";
       const qs = new URLSearchParams(params).toString();
       if (qs) url += "?" + qs;
 
-      fetch(url)
-        .then(res => res.json())
+      fetch(url, {
+         // --- Add headers object with Authorization ---
+         headers: {
+           "Authorization": `Bearer ${token}`
+         }
+         // --- End of new code ---
+      })
+        .then(res => {
+          // --- Handle potential 401/403 Unauthorized errors ---
+           if (res.status === 401 || res.status === 403) {
+             alert("Authentication failed. Please log in again.");
+             authStore.logout(); // Use the store's logout action
+             this.$router.push('/login');
+             throw new Error('Unauthorized'); // Stop further processing
+           }
+          // --- End of new code ---
+          if (!res.ok) {
+             // Throw an error to be caught by the .catch block
+             throw new Error(`Failed to fetch recipes (${res.status} ${res.statusText})`);
+          }
+          return res.json();
+        })
         .then(data => {
           this.recipes = data;
+        })
+        .catch(err => {
+           // Avoid processing if it was an Unauthorized error we already handled
+           if (err.message !== 'Unauthorized') {
+             console.error("Error fetching recipes:", err);
+             // Show user-friendly error message, e.g., using a snackbar or alert
+             alert(`Could not load recipes: ${err.message}`);
+             this.recipes = []; // Clear recipes on error
+           }
         });
     },
     fetchCuisines() {

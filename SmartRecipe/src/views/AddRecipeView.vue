@@ -54,6 +54,7 @@
 </template>
 
 <script>
+import { useAuthStore } from '../stores/auth';
 export default {
   data() {
     return {
@@ -101,18 +102,43 @@ export default {
         });
     },
     async submitRecipe() {
+      // --- Import and use the auth store ---
+      const authStore = useAuthStore(); // Make sure this line is inside the method or component setup
+      const token = authStore.token;
+
+      // --- Check if token exists ---
+      if (!token) {
+        alert("Authentication error: You are not logged in.");
+        this.$router.push('/login'); // Redirect to login
+        return;
+      }
+      // --- End of new code ---
+
       try {
         const response = await fetch("http://127.0.0.1:8000/create_recipe", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            // --- Add the Authorization header ---
+            "Authorization": `Bearer ${token}`
+            // --- End of new code ---
           },
           body: JSON.stringify(this.form)
         });
-    
-    if (!response.ok) {
+
+        // --- Handle potential 401/403 Unauthorized errors ---
+        if (response.status === 401 || response.status === 403) {
+           alert("Authentication failed. Please log in again.");
+           authStore.logout(); // Clear token
+           this.$router.push('/login');
+           return;
+        }
+        // --- End of new code ---
+
+        if (!response.ok) {
           const errorData = await response.json();
-          alert(`Error: ${errorData.detail}`);
+          // Display more specific backend error if available
+          alert(`Error creating recipe: ${errorData.detail || response.statusText}`);
           return;
         }
 
@@ -125,7 +151,8 @@ export default {
           name: '',
           description: '',
           ingredients: '',
-          instruction: '',
+          // Ensure 'instructions' is reset, not 'instruction'
+          instructions: '', // <--- Fix typo if present
           category_id: '',
           cuisine_id: '',
           diet_id: '',
@@ -134,11 +161,14 @@ export default {
 
       } catch (err) {
         console.error("Failed to create recipe:", err);
-        alert("Something went wrong while creating the recipe.");
+        // Provide more context for network or other errors
+        alert(`Something went wrong while creating the recipe: ${err.message}`);
       }
     }
   }
 }
+  
+
     
     
 </script>
