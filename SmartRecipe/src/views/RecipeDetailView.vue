@@ -60,6 +60,19 @@
       </v-card>
     </v-dialog>
     </v-container>
+    <v-row class="mt-8" v-if="similarRecipes.length > 0">
+          <v-col cols="12">
+            <h3 class="text-h6">You Might Also Like</h3>
+            <v-divider class="my-4"></v-divider>
+          </v-col>
+          <v-col v-for="similar in similarRecipes" :key="similar._id" cols="12" sm="6" md="3">
+            <v-card :to="`/recipe/details/${similar._id}`">
+              <v-img :src="similar.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
+              <v-card-title class="text-subtitle-1">{{ similar.name }}</v-card-title>
+              <v-card-subtitle>{{ similar.cuisine?.name }}</v-card-subtitle>
+            </v-card>
+          </v-col>
+        </v-row>
 </template>
 
 <script>
