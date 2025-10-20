@@ -1,62 +1,88 @@
-from fastapi import APIRouter, HTTPException, Query
-from config.db import db
-from models.recipe import Recipe, Cuisine, Category
-from typing import List
-from bson import ObjectId
+from fastapi import APIRouter, HTTPException, Query, status
+# from config.db import db  <- No longer need to import db directly
+from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn # Import RecipeIn
+from typing import List, Optional
+# from bson import ObjectId <- No longer needed
+from beanie import PydanticObjectId # Import for ID validation
+
 recipe = APIRouter()
 
 #Fetch details of each recipe
 @recipe.get("/recipe", response_model=List[Recipe])
-async def get_all_recipes(cuisine_id: str | None = Query(None), category_id: str | None = Query(None), diet_id: str | None = Query(None)):
-    query = {}
+async def get_all_recipes(
+    cuisine_id: Optional[PydanticObjectId] = Query(None),
+    category_id: Optional[PydanticObjectId] = Query(None),
+    diet_id: Optional[PydanticObjectId] = Query(None)
+):
+    
+    # Build a list of search queries
+    find_queries = []
     if cuisine_id:
-        query["cuisine_id"] = ObjectId(cuisine_id)
+        # Query on the linked document's ID
+        find_queries.append(Recipe.cuisine.id == cuisine_id)
     if category_id:
-        query["category_id"] = ObjectId(category_id)
+        find_queries.append(Recipe.category.id == category_id)
     if diet_id:
-        query["diet_id"] = ObjectId(diet_id)
+        find_queries.append(Recipe.diet.id == diet_id)
         
-    recipes = list(db.recipes.find(query))
+    # Run the query. fetch_links=True automatically populates
+    # recipe.cuisine, recipe.category, and recipe.diet
+    recipes = await Recipe.find(*find_queries, fetch_links=True).to_list()
+    
     if not recipes:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
-    for recipe in recipes:
-        recipe["_id"] = str(recipe["_id"])
-        cuisine = db.cuisines.find_one({"_id": recipe["cuisine_id"]})
-        recipe["cuisine_id"] = cuisine["name"] if cuisine else None
-        category = db.categories.find_one({"_id": recipe["category_id"]})
-        recipe["category_id"] = category["name"] if category else None
-        diet = db.diets.find_one({"_id": recipe["diet_id"]})
-        recipe["diet_id"] = diet["name"] if diet else None
-        
+    # No more manual for-loops to replace IDs!
+    
     return recipes
 
 #Fetch details about a recipe
 @recipe.get("/recipe/{recipe_id}", response_model=Recipe)
-async def get_recipe(recipe_id: str):
-    recipe_data = db.recipes.find_one({"_id": ObjectId(recipe_id)})
-    if not recipe_data:
+async def get_recipe(recipe_id: PydanticObjectId):
+    # .get() with fetch_links=True is all you need
+    recipe = await Recipe.get(recipe_id, fetch_links=True)
+    
+    if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
-    recipe_data["_id"] = str(recipe_data["_id"])
+    # No more manual lookups!
     
-    cuisine = db.cuisines.find_one({"_id": recipe_data["cuisine_id"]})
-    recipe_data["cuisine_id"] = cuisine["name"] if cuisine else None
-    
-    category = db.categories.find_one({"_id": recipe_data["category_id"]})
-    recipe_data["category_id"] = category["name"] if category else None
-    
-    diet = db.diets.find_one({"_id": recipe_data["diet_id"]})
-    recipe_data["diet_id"] = diet["name"] if diet else None
-
-    return recipe_data
+    return recipe
 
 
-@recipe.post("/create_recipe")
-async def create_recipe(recipe: Recipe):
-    existing_recipe = db.recipes.find_one({"name": recipe.name})
-    if existing_recipe:
-        raise HTTPException(status_code=404, detail = "Recipe already exists")
+@recipe.post("/create_recipe", status_code=status.HTTP_201_CREATED)
+async def create_recipe(recipe_in: RecipeIn): # Use the RecipeIn model
+    # Check for duplicate name
+    if await Recipe.find_one(Recipe.name == recipe_in.name):
+        raise HTTPException(status_code=400, detail="Recipe already exists")
     
-    db.recipes.insert_one(recipe.dict(exclude={"_id"}))    
-    return {"message": "Recipe created successfully"}  
+    # --- Verify the Links ---
+    # Find the documents to link
+    cuisine = await Cuisine.get(recipe_in.cuisine_id)
+    if not cuisine:
+        raise HTTPException(status_code=404, detail="Cuisine not found")
+        
+    category = await Category.get(recipe_in.category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+        
+    diet = await Diet.get(recipe_in.diet_id)
+    if not diet:
+        raise HTTPException(status_code=404, detail="Diet not found")
+
+    # Create the new Recipe document using the linked objects
+    new_recipe = Recipe(
+        name=recipe_in.name,
+        cuisine=cuisine,
+        instructions=recipe_in.instructions,
+        category=category,
+        diet=diet,
+        ingredients=recipe_in.ingredients,
+        description=recipe_in.description,
+        image_url=recipe_in.image_url
+    )
+    
+    # Insert the new document
+    await new_recipe.insert()
+    
+    return {"message": "Recipe created successfully", "recipe_id": str(new_recipe.id)}

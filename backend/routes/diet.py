@@ -1,18 +1,18 @@
 from fastapi import APIRouter, HTTPException
-from config.db import db
+# from config.db import db  <- Removed
 from models.recipe import Diet
 from typing import List
-from bson import ObjectId
+# from bson import ObjectId <- Removed
+
 diet = APIRouter()
 
-#Fetch all cuisines
+#Fetch all diets
 @diet.get("/diets", response_model=List[Diet])
 async def get_diets():
-    diets = list(db.diets.find({}))
+    diets = await Diet.find_all().to_list()  # Use Beanie query
     if not diets:
         raise HTTPException(status_code=404, detail="No diet")
 
-    for diet in diets:
-        diet["_id"] = str(diet["_id"])   
+    # The for loop for converting _id is no longer needed
     
     return diets
