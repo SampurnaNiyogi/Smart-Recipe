@@ -4,6 +4,7 @@ from routes.cuisine import cuisine
 from routes.category import category
 from routes.diet import diet
 from routes.authentication import auth_router
+from routes.chatbot import chatbot_router
 from fastapi.middleware.cors import CORSMiddleware
 from beanie import init_beanie
 import motor.motor_asyncio
@@ -64,6 +65,7 @@ app.include_router(category)
 app.include_router(diet)
 app.include_router(auth_router)
 app.include_router(recommendation_router)
+app.include_router(chatbot_router, tags=["Chatbot"], prefix="")
 
 app.add_middleware(
     CORSMiddleware,
