@@ -75,7 +75,7 @@ The application combines:
 
 ### 🖥️ 1️⃣ Clone the Repository
 ```bash
-git clone [https://github.com/Sampurna/SmartRecipe.git](https://github.com/SampurnaNiyogi/Smart-Recipe)
+git clone https://github.com/SampurnaNiyogi/Smart-Recipe
 cd SmartRecipe
 ```
 ### 🧩 2️⃣ Backend Setup   
