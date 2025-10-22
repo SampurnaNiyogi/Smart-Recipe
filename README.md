@@ -18,17 +18,6 @@ The application combines:
 
 ---
 
-## 🖼️ Demo Preview
-
-> 🧩 _Add screenshots or GIFs of your app here!_  
-> Example:
-> - Homepage with search and filters  
-> - Recipe details page  
-> - Chatbot interface  
-> - Add recipe form
-
----
-
 ## 🚀 Features
 
 ### 🔐 Authentication & Security
