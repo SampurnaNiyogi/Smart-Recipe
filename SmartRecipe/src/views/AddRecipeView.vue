@@ -108,7 +108,7 @@
                   ></v-file-input>
                 </v-col>
 
-                <v-col cols="12" v-if="form.image_url && !imageFile" class="d-flex justify-center">
+                <v-col cols="12" v-if="form.image_url && (!imageFile || imageFile.length === 0)" class="d-flex justify-center">
                   <v-img
                     :src="form.image_url"
                     max-height="200"
@@ -235,18 +235,24 @@ export default {
     },
     async uploadImageToCloudinary() {
       const fileToUpload = Array.isArray(this.imageFile) ? this.imageFile[0] : this.imageFile
-      
+
+      if (!fileToUpload) {
+        return null
+      }
+
       const formData = new FormData()
       formData.append('file', fileToUpload)
       formData.append('upload_preset', 'ForSmartRecipe')
-      formData.append('cloud_name', 'djw8w0yxl')
 
       const res = await fetch(`https://api.cloudinary.com/v1_1/djw8w0yxl/image/upload`, {
         method: 'POST',
         body: formData
       })
       
-      if (!res.ok) throw new Error("Image upload failed")
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error?.message || "Image upload failed")
+      }
       
       const data = await res.json()
       return data.secure_url
@@ -264,8 +270,13 @@ export default {
       this.isSubmitting = true
 
       try {
-        if (this.imageFile) {
-          this.form.image_url = await this.uploadImageToCloudinary()
+        const hasFile = Array.isArray(this.imageFile) ? this.imageFile.length > 0 : !!this.imageFile
+        
+        if (hasFile) {
+          const uploadedUrl = await this.uploadImageToCloudinary()
+          if (uploadedUrl) {
+            this.form.image_url = uploadedUrl
+          }
         }
 
         const url = this.isEditMode 

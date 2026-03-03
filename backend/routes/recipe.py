@@ -209,3 +209,30 @@ async def delete_recipe(
     
     await recipe_obj.delete()
     return {"message": "Recipe deleted successfully"}
+
+@recipe.get("/recently-viewed", response_model=List[Recipe])
+async def get_recently_viewed(current_user: User = Depends(get_current_user)):
+    # 1. Fetch the 4 most recent view history records
+    history_records = await UserViewHistory.find(
+        UserViewHistory.user.id == current_user.id
+    ).sort("-viewed_at").limit(4).to_list()
+    
+    if not history_records:
+        return []
+        
+    # 2. Safely extract the ObjectIds from the Link objects
+    recipe_ids = []
+    for record in history_records:
+        if record.recipe:
+            # Handle both unresolved Link and resolved Document structures
+            rid = record.recipe.ref.id if hasattr(record.recipe, "ref") else record.recipe.id
+            recipe_ids.append(rid)
+            
+    # 3. Fetch the actual fully populated recipes (resolving creator, cuisine, etc.)
+    recipes = await Recipe.find({"_id": {"$in": recipe_ids}}, fetch_links=True).to_list()
+    
+    # 4. Re-sort the recipes to match the chronological history order
+    recipe_dict = {str(r.id): r for r in recipes}
+    sorted_recent_recipes = [recipe_dict[str(rid)] for rid in recipe_ids if str(rid) in recipe_dict]
+    
+    return sorted_recent_recipes

@@ -76,10 +76,33 @@
         </v-row>
       </div>
 
+      <div v-if="!showingSearchResults && recentRecipes.length > 0" class="mb-12">
+        <div class="d-flex align-center mb-6">
+          <v-icon color="teal-darken-2" size="x-large" class="mr-3">mdi-history</v-icon>
+          <h3 class="text-h5 font-weight-bold text-grey-darken-3">Jump Back In</h3>
+        </div>
+        
+        <v-row v-if="loadingRecent">
+           <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
+              <v-skeleton-loader type="card"></v-skeleton-loader>
+            </v-col>
+        </v-row>
+
+        <v-row v-else>
+          <v-col v-for="recipe in recentRecipes" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
+            <v-card hover class="h-100 rounded-lg" @click="$router.push(`/recipe/details/${recipe._id}`)">
+              <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="180px" cover />
+              <v-card-title class="pt-3">{{ recipe.name }}</v-card-title>
+              <v-card-subtitle class="pb-3 text-teal font-weight-medium">{{ recipe.cuisine?.name || 'Various' }}</v-card-subtitle>
+            </v-card>
+          </v-col>
+        </v-row>
+      </div>
+
       <div v-if="!showingSearchResults && seasonalRecipes.length > 0">
         <div class="d-flex align-center mb-6">
-          <v-icon color="orange-darken-2" size="x-large" class="mr-3">mdi-white-balance-sunny</v-icon>
-          <h3 class="text-h5 font-weight-bold text-grey-darken-3">Seasonal Suggestions</h3>
+          <v-icon color="orange-darken-2" size="x-large" class="mr-3">mdi-weather-partly-cloudy</v-icon>
+          <h3 class="text-h5 font-weight-bold text-grey-darken-3">Weather-based Suggestions</h3>
         </div>
         
         <v-row v-if="loadingSeasonal">
@@ -119,9 +142,11 @@ export default {
     return {
       userData: { user_name: 'there' },
       recipes: [],
+      recentRecipes: [],
       seasonalRecipes: [],
       loadingUser: false,
       loadingRecipes: false,
+      loadingRecent: false,
       loadingSeasonal: false,
       searchQuery: '',
       error: null,
@@ -137,10 +162,22 @@ export default {
      }
   },
   async mounted() {
-    Promise.all([
-      this.fetchUserProfile(),
-      this.fetchSeasonalRecipes(),
-    ]);
+    this.fetchUserProfile();
+    this.fetchRecentRecipes();
+    
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          this.fetchSeasonalRecipes(position.coords.latitude, position.coords.longitude);
+        },
+        (error) => {
+          this.fetchSeasonalRecipes();
+        },
+        { timeout: 5000 }
+      );
+    } else {
+      this.fetchSeasonalRecipes();
+    }
   },
   methods: {
     async fetchUserProfile() {
@@ -158,13 +195,35 @@ export default {
         this.loadingUser = false;
       }
     },
-    async fetchSeasonalRecipes() {
+    async fetchRecentRecipes() {
+      const authStore = useAuthStore();
+      const token = authStore.token;
+      if (!token) return;
+      this.loadingRecent = true;
+      try {
+        const response = await fetch("http://127.0.0.1:8000/recently-viewed", { headers: { "Authorization": `Bearer ${token}` } });
+        if (response.status === 401) return;
+        if (!response.ok) throw new Error('Failed to fetch recent recipes');
+        this.recentRecipes = await response.json();
+      } catch (err) {
+        console.error(err.message);
+      } finally {
+        this.loadingRecent = false;
+      }
+    },
+    async fetchSeasonalRecipes(lat = null, lon = null) {
       const authStore = useAuthStore();
       const token = authStore.token;
       if (!token) return;
       this.loadingSeasonal = true;
+      
+      let url = "http://127.0.0.1:8000/recommendations/seasonal";
+      if (lat !== null && lon !== null) {
+        url += `?lat=${lat}&lon=${lon}`;
+      }
+      
       try {
-        const response = await fetch("http://127.0.0.1:8000/recommendations/seasonal", { headers: { "Authorization": `Bearer ${token}` } });
+        const response = await fetch(url, { headers: { "Authorization": `Bearer ${token}` } });
         if (response.status === 401) return;
         if (!response.ok) throw new Error('Failed to fetch seasonal recipes');
         this.seasonalRecipes = await response.json();
