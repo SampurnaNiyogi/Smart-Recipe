@@ -21,6 +21,11 @@ class UserOut(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
 
+class UserUpdate(BaseModel):
+    user_name: Optional[str] = None
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    
 class User(Document):
     uuid : UUID = Field(default_factory=uuid4, unique=True)
     user_name: str = Field(..., unique=True)

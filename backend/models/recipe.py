@@ -4,7 +4,7 @@ from bson import ObjectId
 from typing_extensions import Annotated
 from beanie import Document, Link, PydanticObjectId  # Import Link & PydanticObjectId
 from pymongo import IndexModel, TEXT
-
+from models.users import User
 PyObjectId = Annotated[str, BeforeValidator(str)]
 
 # --- NEW Pydantic Model for CREATING recipes ---
@@ -41,7 +41,7 @@ class Diet(Document):
 
 # --- UPDATED Recipe Document Model ---
 class Recipe(Document):
-    
+    creator: Link[User]
     name: str
     cuisine: Link[Cuisine]         # Changed from cuisine_id
     instructions: str
@@ -52,7 +52,7 @@ class Recipe(Document):
     image_url: Optional[str] = None
     
     embedding: Optional[List[float]] = None
-    
+
     class Settings:
         name = "recipes"
         

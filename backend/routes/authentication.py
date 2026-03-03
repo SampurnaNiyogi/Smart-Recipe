@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from jose import jwt, JWTError
 from fastapi.security import OAuth2PasswordBearer
 from models.auth import SendOtpRequest, Token, VerifyOtpRequest
-from models.users import User, UserSignUp, UserOut
+from models.users import User, UserSignUp, UserOut, UserUpdate
 import random
 from uuid import UUID
 load_dotenv()
@@ -181,4 +181,26 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     Get the details of the currently authenticated user.
     """
     # UserOut model should automatically handle the response structure
+    return current_user
+
+@auth_router.put("/users/me", response_model=UserOut)
+async def update_user_profile(
+    user_update: UserUpdate, 
+    current_user: User = Depends(get_current_user)
+):
+    if user_update.user_name and user_update.user_name != current_user.user_name:
+        if await User.find_one(User.user_name == user_update.user_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Username is already taken"
+            )
+        current_user.user_name = user_update.user_name
+        
+    if user_update.full_name is not None:
+        current_user.full_name = user_update.full_name
+        
+    if user_update.email is not None:
+        current_user.email = user_update.email
+        
+    await current_user.save()
     return current_user

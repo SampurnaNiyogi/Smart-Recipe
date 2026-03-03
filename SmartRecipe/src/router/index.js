@@ -1,37 +1,36 @@
-// src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue' // Your Home/Dashboard view
-import LoginView from '../views/LoginView.vue' // Your Login view
+import HomeView from '../views/HomeView.vue'
+import LoginView from '../views/LoginView.vue'
 import RecipeListView from '@/views/RecipeListView.vue'
 import AddRecipeView from '@/views/AddRecipeView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import ChatbotView from '@/views/ChatbotView.vue'
 import RecipeDetailView from '@/views/RecipeDetailView.vue'
+import MyRecipesView from '@/views/MyRecipesView.vue'
 import { useAuthStore } from '../stores/auth'
-
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/', // Set HomeView as the default route
+      path: '/',
       name: 'home',
       component: HomeView
     },
     {
-      path: '/login', // Route for the login page
+      path: '/login',
       name: 'login',
       component: LoginView
     },
     {
-      path: '/signup', // Route for signup (can point to LoginView for now or a separate component) [cite: 33]
+      path: '/signup',
       name: 'signup',
-      component: LoginView // Reusing LoginView as it has a "Sign Up" link/button
+      component: LoginView
     },
     {
-      path: '/forgot-password', // Placeholder route for forgot password [cite: 36]
+      path: '/forgot-password',
       name: 'forgot-password',
-      component: LoginView // Reusing LoginView for simplicity for now
+      component: LoginView
     },
     {
       path: '/recipes',
@@ -40,8 +39,20 @@ const router = createRouter({
       meta: { requiresAuth: true } 
     },
     {
+      path: '/my-recipes',
+      name: 'my-recipes',
+      component: MyRecipesView, 
+      meta: { requiresAuth: true } 
+    },
+    {
       path: '/add',
       name: 'add',
+      component: AddRecipeView, 
+      meta: { requiresAuth: true } 
+    },
+    {
+      path: '/edit/:id',
+      name: 'edit',
       component: AddRecipeView, 
       meta: { requiresAuth: true } 
     },
@@ -69,7 +80,6 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
 
-  // Wait for Firebase auth to initialize
   if (authStore.loading) {
     await new Promise(resolve => {
       const unwatch = authStore.$subscribe(() => {
@@ -87,6 +97,5 @@ router.beforeEach(async (to, from, next) => {
     next()
   }
 })
-
 
 export default router

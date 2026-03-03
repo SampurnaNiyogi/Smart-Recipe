@@ -13,7 +13,6 @@ import re
 import os
 from google import genai
 
-# --- Configure New Gemini Client ---
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 recipe = APIRouter()
@@ -26,11 +25,7 @@ async def get_ingredient_substitutes(
     substitutes = get_substitutes(ingredient_name)
     return substitutes
 
-# --- LLM Validation Function ---
 async def validate_recipe_with_gemini(recipe_data: Recipe, search_term: str) -> bool:
-    """
-    Sends the recipe details to Gemini to determine if it truly matches the user's intent.
-    """
     prompt = f"""
     You are a culinary expert API. A user searched for the recipe/ingredient: "{search_term}".
     
@@ -47,7 +42,6 @@ async def validate_recipe_with_gemini(recipe_data: Recipe, search_term: str) -> 
     """
     
     try:
-        # NEW SDK SYNTAX using aio for async calls
         response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt
@@ -56,10 +50,8 @@ async def validate_recipe_with_gemini(recipe_data: Recipe, search_term: str) -> 
         return "true" in result
     except Exception as e:
         print(f"Gemini API Validation Error for {recipe_data.name}: {e}")
-        # Fallback to True if the API fails so we don't accidentally hide recipes
         return True 
 
-# --- Search Endpoint ---
 @recipe.get("/recipe", response_model=List[Recipe])
 async def get_all_recipes(
     cuisine_id: Optional[PydanticObjectId] = Query(None),
@@ -68,7 +60,6 @@ async def get_all_recipes(
     search_query: Optional[str] = Query(None)
 ):
     if not search_query:
-        # Standard logic when the search bar is empty
         queries = []
         if cuisine_id: queries.append(Recipe.cuisine.id == cuisine_id)
         if category_id: queries.append(Recipe.category.id == category_id)
@@ -78,12 +69,10 @@ async def get_all_recipes(
             return await Recipe.find(*queries, fetch_links=True).to_list()
         return await Recipe.find_all(fetch_links=True).to_list()
 
-    # Clean the search term
     clean_query = re.sub(r'\b(recipe|recipes|dish|how to make)\b', '', search_query, flags=re.IGNORECASE).strip().lower()
     if not clean_query:
         clean_query = search_query.lower()
 
-    # STAGE 1: Fast Regex Retrieval
     regex_pattern = re.compile(clean_query, re.IGNORECASE)
     
     query_filters = {
@@ -103,11 +92,9 @@ async def get_all_recipes(
     if not raw_recipes:
         return []
 
-    # STAGE 2: Gemini LLM Validation
     validation_tasks = [validate_recipe_with_gemini(r, clean_query) for r in raw_recipes]
     validation_results = await asyncio.gather(*validation_tasks)
 
-    # Filter out recipes that Gemini marked as False
     final_recipes = [
         raw_recipes[i] for i in range(len(raw_recipes)) 
         if validation_results[i] is True
@@ -115,10 +102,13 @@ async def get_all_recipes(
 
     return final_recipes
 
-#Fetch details about a recipe
+@recipe.get("/my-recipes", response_model=List[Recipe])
+async def get_my_recipes(current_user: User = Depends(get_current_user)):
+    recipes = await Recipe.find(Recipe.creator.id == current_user.id, fetch_links=True).to_list()
+    return recipes
+
 @recipe.get("/recipe/{recipe_id}", response_model=Recipe)
 async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_current_user)):
-    
     try:
         recipe_obj_id = PydanticObjectId(recipe_id)
     except ValidationError:
@@ -130,7 +120,6 @@ async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_
         raise HTTPException(status_code=404, detail="Recipe not found")
     
     if current_user:
-        # To avoid spamming the DB, only log if it hasn't been logged in the last hour
         one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
         existing_view = await UserViewHistory.find_one(
             UserViewHistory.user.id == current_user.id,
@@ -140,18 +129,16 @@ async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_
         
         if not existing_view:
             try:
-                # Create and save the view history record
                 view_log = UserViewHistory(user=current_user, recipe=fetched_recipe)
                 await view_log.insert()
                 print(f"User {current_user.user_name} viewed recipe {fetched_recipe.name}")
             except Exception as e:
-                # Fail silently, logging the view is not critical
                 print(f"Error logging view history: {e}")
     
     return fetched_recipe
     
 @recipe.post("/create_recipe", status_code=status.HTTP_201_CREATED)
-async def create_recipe(recipe_in: RecipeIn): 
+async def create_recipe(recipe_in: RecipeIn, current_user: User = Depends(get_current_user)): 
     if await Recipe.find_one(Recipe.name == recipe_in.name):
         raise HTTPException(status_code=400, detail="Recipe already exists")
     
@@ -163,6 +150,7 @@ async def create_recipe(recipe_in: RecipeIn):
          raise HTTPException(status_code=404, detail="Relational data missing")
 
     new_recipe = Recipe(
+        creator=current_user,
         name=recipe_in.name,
         cuisine=cuisine,
         instructions=recipe_in.instructions,
@@ -171,8 +159,53 @@ async def create_recipe(recipe_in: RecipeIn):
         ingredients=recipe_in.ingredients,
         description=recipe_in.description,
         image_url=recipe_in.image_url
-        # Embedding logic removed since we now use Gemini natively!
     )
     
     await new_recipe.insert()
     return {"message": "Recipe created successfully", "recipe_id": str(new_recipe.id)}
+
+
+@recipe.put("/recipe/{recipe_id}")
+async def update_recipe(
+    recipe_id: str, 
+    recipe_update: RecipeIn, 
+    current_user: User = Depends(get_current_user)
+):
+    recipe_obj = await Recipe.get(PydanticObjectId(recipe_id), fetch_links=True)
+    
+    if not recipe_obj:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if not recipe_obj.creator or recipe_obj.creator.id != current_user.id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Permission denied: You can only edit your own recipes"
+        )
+
+    recipe_obj.name = recipe_update.name
+    recipe_obj.instructions = recipe_update.instructions
+    recipe_obj.ingredients = recipe_update.ingredients
+    recipe_obj.description = recipe_update.description
+    recipe_obj.image_url = recipe_update.image_url
+    
+    await recipe_obj.save()
+    return {"message": "Recipe updated successfully"}
+
+@recipe.delete("/recipe/{recipe_id}")
+async def delete_recipe(
+    recipe_id: str, 
+    current_user: User = Depends(get_current_user)
+):
+    recipe_obj = await Recipe.get(PydanticObjectId(recipe_id), fetch_links=True)
+    
+    if not recipe_obj:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if not recipe_obj.creator or recipe_obj.creator.id != current_user.id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Permission denied: You can only delete your own recipes"
+        )
+    
+    await recipe_obj.delete()
+    return {"message": "Recipe deleted successfully"}

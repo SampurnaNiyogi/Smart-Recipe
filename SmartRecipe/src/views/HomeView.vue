@@ -1,85 +1,112 @@
 <template>
-  <v-container>
-
-    <v-row class="mt-10">
-      <v-col cols="12">
-        <h2 class="text-h4">Welcome back, {{ userGreetingName }}!</h2>
-        <h3 class="text-subtitle-1">What would you like to cook today?</h3>
-      </v-col>
-    </v-row>
-
-    <v-row v-if="error" class="mt-8">
-      <v-col cols="12">
-        <v-alert type="error" outlined>{{ error }}</v-alert>
-      </v-col>
-    </v-row>
-
-    <v-row class="mt-4">
-      <v-col cols="12">
-        <v-text-field
-          v-model="searchQuery"
-          label="Search by name or ingredients (e.g., 'chicken garlic')"
-          placeholder="What do you have in your pantry?"
-          prepend-inner-icon="mdi-magnify"
-          variant="solo"
-          clearable
-          @keydown.enter="performSearch"
-          @click:clear="clearSearch" >
-          <template v-slot:append-inner>
-            <v-btn @click="performSearch" color="teal" icon="mdi-arrow-right" variant="flat" :loading="loadingSearch"></v-btn>
-          </template>
-        </v-text-field>
-      </v-col>
-    </v-row>
-
-    <div v-if="showingSearchResults">
-      <v-row class="mt-8">
-        <v-col cols="12" class="d-flex justify-space-between align-center">
-          <h3 class="text-h5">Search Results for "{{ displayedSearchQuery }}"</h3>
-          <v-btn variant="text" @click="clearSearch">Clear Search</v-btn>
+  <v-container fluid class="pa-0">
+    <div class="bg-teal-darken-3 py-16 px-6 text-center text-white">
+      <h1 class="text-h3 font-weight-bold mb-4">Welcome back, {{ userGreetingName }}!</h1>
+      <h2 class="text-h5 font-weight-regular mb-8 text-teal-lighten-4">What are you craving today?</h2>
+      
+      <v-row justify="center">
+        <v-col cols="12" sm="10" md="8" lg="6">
+          <v-text-field
+            v-model="searchQuery"
+            placeholder="Search by name, ingredients, or dish type..."
+            variant="solo"
+            bg-color="white"
+            color="teal-darken-3"
+            clearable
+            hide-details
+            rounded="pill"
+            elevation="6"
+            class="search-input"
+            @keydown.enter="performSearch"
+            @click:clear="clearSearch"
+          >
+            <template v-slot:prepend-inner>
+              <v-icon color="grey-darken-1" class="ml-2">mdi-magnify</v-icon>
+            </template>
+            <template v-slot:append-inner>
+              <v-btn 
+                color="teal" 
+                icon="mdi-arrow-right" 
+                variant="flat" 
+                size="small"
+                class="mr-1"
+                :loading="loadingSearch"
+                @click="performSearch"
+              ></v-btn>
+            </template>
+          </v-text-field>
         </v-col>
-        <v-col v-if="loadingSearch" cols="12">
-           <v-progress-linear indeterminate color="teal"></v-progress-linear>
-        </v-col>
-        <v-col v-else-if="searchResults.length === 0" cols="12">
-          <v-alert type="info" outlined>No recipes found matching your search.</v-alert>
-        </v-col>
-         <v-col v-else v-for="recipe in searchResults" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
-           <v-card :to="`/recipe/details/${recipe._id}`">
-             <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
-             <v-card-title>{{ recipe.name }}</v-card-title>
-             <v-card-subtitle>{{ recipe.cuisine?.name }}</v-card-subtitle>
-           </v-card>
-         </v-col>
       </v-row>
     </div>
 
-    <v-row class="mt-8" v-if="!loadingSeasonal && seasonalRecipes.length > 0">
-       <v-col cols="12">
-          <h3 class="text-h5">Seasonal Suggestions</h3>
-          <v-divider class="my-4"></v-divider>
-        </v-col>
-        <v-col v-for="recipe in seasonalRecipes" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
-          <v-card @click="$router.push(`/recipe/details/${recipe._id}`)">
-            <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
-            <v-card-title>{{ recipe.name }}</v-card-title>
-            <v-card-subtitle>{{ recipe.cuisine?.name }}</v-card-subtitle>
-          </v-card>
-        </v-col>
-    </v-row>
+    <v-container class="mt-8 mb-12">
+      <v-alert v-if="error" type="error" variant="tonal" class="mb-8">{{ error }}</v-alert>
 
-    <v-row v-if="loadingRecipes || loadingSeasonal" class="mt-8">
-       <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
-          <v-skeleton-loader type="card"></v-skeleton-loader>
-        </v-col>
-    </v-row>
+      <div v-if="showingSearchResults" class="mb-12">
+        <div class="d-flex justify-space-between align-center mb-6">
+          <h3 class="text-h5 font-weight-bold text-grey-darken-3">
+            Search Results for "<span class="text-teal">{{ displayedSearchQuery }}</span>"
+          </h3>
+          <v-btn variant="text" color="grey-darken-1" @click="clearSearch" prepend-icon="mdi-close">Clear</v-btn>
+        </div>
+        
+        <v-row v-if="loadingSearch">
+          <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
+             <v-skeleton-loader type="card"></v-skeleton-loader>
+          </v-col>
+        </v-row>
+        
+        <v-row v-else-if="searchResults.length === 0">
+          <v-col cols="12">
+            <v-card class="pa-8 text-center bg-grey-lighten-4" elevation="0" border>
+              <v-icon size="48" color="grey">mdi-magnify-remove-outline</v-icon>
+              <p class="text-h6 mt-4 text-grey-darken-1">No recipes found matching your search.</p>
+            </v-card>
+          </v-col>
+        </v-row>
+        
+        <v-row v-else>
+           <v-col v-for="recipe in searchResults" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
+             <v-card hover class="h-100 rounded-lg" :to="`/recipe/details/${recipe._id}`">
+               <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="180px" cover />
+               <v-card-title class="pt-3">{{ recipe.name }}</v-card-title>
+               <v-card-subtitle class="pb-3 text-teal font-weight-medium">{{ recipe.cuisine?.name || 'Various' }}</v-card-subtitle>
+             </v-card>
+           </v-col>
+        </v-row>
+      </div>
 
-    <v-row class="mt-12">
-       <v-col class="text-center">
-          <v-btn color="teal" @click="goToRecipes">View All Recipes</v-btn>
-        </v-col>
-    </v-row>
+      <div v-if="!showingSearchResults && seasonalRecipes.length > 0">
+        <div class="d-flex align-center mb-6">
+          <v-icon color="orange-darken-2" size="x-large" class="mr-3">mdi-white-balance-sunny</v-icon>
+          <h3 class="text-h5 font-weight-bold text-grey-darken-3">Seasonal Suggestions</h3>
+        </div>
+        
+        <v-row v-if="loadingSeasonal">
+           <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
+              <v-skeleton-loader type="card"></v-skeleton-loader>
+            </v-col>
+        </v-row>
 
+        <v-row v-else>
+          <v-col v-for="recipe in seasonalRecipes" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
+            <v-card hover class="h-100 rounded-lg border-sm border-teal-lighten-4" @click="$router.push(`/recipe/details/${recipe._id}`)">
+              <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="180px" cover />
+              <v-card-title class="pt-3">{{ recipe.name }}</v-card-title>
+              <v-card-subtitle class="pb-3 text-teal font-weight-medium">{{ recipe.cuisine?.name || 'Various' }}</v-card-subtitle>
+            </v-card>
+          </v-col>
+        </v-row>
+      </div>
+
+      <v-row class="mt-12">
+         <v-col class="text-center">
+            <v-btn color="teal-darken-2" size="x-large" elevation="4" @click="goToRecipes" prepend-icon="mdi-book-open-page-variant">
+              Browse Full Recipe Directory
+            </v-btn>
+          </v-col>
+      </v-row>
+    </v-container>
   </v-container>
 </template>
 
@@ -126,7 +153,7 @@ export default {
         if (!response.ok) throw new Error('Failed to fetch user data');
         this.userData = await response.json();
       } catch (err) {
-        console.error("Error fetching user for home:", err);
+        console.error(err);
       } finally {
         this.loadingUser = false;
       }
@@ -138,11 +165,11 @@ export default {
       this.loadingSeasonal = true;
       try {
         const response = await fetch("http://127.0.0.1:8000/recommendations/seasonal", { headers: { "Authorization": `Bearer ${token}` } });
-        if (response.status === 401) { return; }
-        if (!response.ok) throw new Error(`Failed to fetch seasonal recipes (${response.status})`);
+        if (response.status === 401) return;
+        if (!response.ok) throw new Error('Failed to fetch seasonal recipes');
         this.seasonalRecipes = await response.json();
       } catch (err) {
-        console.error("Error fetching seasonal recipes:", err.message);
+        console.error(err.message);
       } finally {
         this.loadingSeasonal = false;
       }
@@ -150,9 +177,8 @@ export default {
     goToRecipes() {
       this.$router.push('/recipes');
     },
-    // Kept only ONE performSearch function
     async performSearch() {
-      const query = this.searchQuery.trim();
+      const query = this.searchQuery?.trim();
       if (!query) {
         this.clearSearch(); 
         return;
@@ -181,17 +207,13 @@ export default {
         if (response.status === 401) {
           authStore.logout();
           this.$router.push('/login');
-          throw new Error('Unauthorized');
+          return;
         }
-        if (!response.ok) {
-          throw new Error(`Search failed (${response.status})`);
-        }
+        if (!response.ok) throw new Error("Search failed");
+        
         this.searchResults = await response.json();
-
       } catch (err) {
-        console.error("Error performing search:", err.message);
         this.error = `Could not perform search: ${err.message}`; 
-        this.searchResults = []; 
       } finally {
         this.loadingSearch = false;
       }
@@ -207,3 +229,10 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.search-input:deep(.v-field) {
+  border-radius: 40px !important;
+  padding-right: 8px;
+}
+</style>
