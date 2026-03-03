@@ -1,32 +1,65 @@
-from fastapi import APIRouter, HTTPException, Query, status
-from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn # Import RecipeIn
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn
 from typing import List, Optional
 from beanie import PydanticObjectId 
 from models.users import User
 from routes.authentication import get_current_user
 from models.history import UserViewHistory 
-from fastapi import Depends 
-from typing import Optional
 import datetime
 from pydantic import ValidationError
 from services.substitutes import get_substitutes
+import asyncio
+import re
+import os
+from google import genai
+
+# --- Configure New Gemini Client ---
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 recipe = APIRouter()
-@recipe.get(
-    "/recipe/substitutes/{ingredient_name}", 
-    response_model=List[str],
-    summary="Get substitutes for an ingredient"
-)
+
+@recipe.get("/recipe/substitutes/{ingredient_name}", response_model=List[str])
 async def get_ingredient_substitutes(
     ingredient_name: str,
-    current_user: User = Depends(get_current_user) # Secure the endpoint
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Provides a list of potential substitutes for a given ingredient.
-    """
     substitutes = get_substitutes(ingredient_name)
     return substitutes
-#Fetch details of each recipe
+
+# --- LLM Validation Function ---
+async def validate_recipe_with_gemini(recipe_data: Recipe, search_term: str) -> bool:
+    """
+    Sends the recipe details to Gemini to determine if it truly matches the user's intent.
+    """
+    prompt = f"""
+    You are a culinary expert API. A user searched for the recipe/ingredient: "{search_term}".
+    
+    Evaluate the following recipe:
+    Name: {recipe_data.name}
+    Ingredients: {recipe_data.ingredients}
+    Description: {recipe_data.description or 'None'}
+    
+    Is this genuinely a "{search_term}" recipe? 
+    (For example, if the search is "chicken" and this is a fish recipe that says "as good as chicken", the answer is False).
+    If the user searched for a broad category like "salad" and this is clearly a salad, the answer is True.
+    
+    Reply ONLY with the exact word "True" or "False". Do not add any other text.
+    """
+    
+    try:
+        # NEW SDK SYNTAX using aio for async calls
+        response = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        result = response.text.strip().lower()
+        return "true" in result
+    except Exception as e:
+        print(f"Gemini API Validation Error for {recipe_data.name}: {e}")
+        # Fallback to True if the API fails so we don't accidentally hide recipes
+        return True 
+
+# --- Search Endpoint ---
 @recipe.get("/recipe", response_model=List[Recipe])
 async def get_all_recipes(
     cuisine_id: Optional[PydanticObjectId] = Query(None),
@@ -34,31 +67,53 @@ async def get_all_recipes(
     diet_id: Optional[PydanticObjectId] = Query(None),
     search_query: Optional[str] = Query(None)
 ):
-    
-    filter_conditions = {}
+    if not search_query:
+        # Standard logic when the search bar is empty
+        queries = []
+        if cuisine_id: queries.append(Recipe.cuisine.id == cuisine_id)
+        if category_id: queries.append(Recipe.category.id == category_id)
+        if diet_id: queries.append(Recipe.diet.id == diet_id)
+            
+        if queries:
+            return await Recipe.find(*queries, fetch_links=True).to_list()
+        return await Recipe.find_all(fetch_links=True).to_list()
 
-    # 1. Add text search if provided
-    if search_query:
-        # Use MongoDB's $text operator
-        filter_conditions["$text"] = {"$search": search_query}
+    # Clean the search term
+    clean_query = re.sub(r'\b(recipe|recipes|dish|how to make)\b', '', search_query, flags=re.IGNORECASE).strip().lower()
+    if not clean_query:
+        clean_query = search_query.lower()
 
-    # 2. Add Link filters (using raw Mongo query syntax for Links)
-    if cuisine_id:
-        filter_conditions["cuisine.$id"] = cuisine_id
+    # STAGE 1: Fast Regex Retrieval
+    regex_pattern = re.compile(clean_query, re.IGNORECASE)
     
-    if category_id:
-        filter_conditions["category.$id"] = category_id
+    query_filters = {
+        "$or": [
+            {"name": regex_pattern},
+            {"ingredients": regex_pattern},
+            {"description": regex_pattern}
+        ]
+    }
     
-    if diet_id:
-        filter_conditions["diet.$id"] = diet_id
+    if cuisine_id: query_filters["cuisine.$id"] = cuisine_id
+    if category_id: query_filters["category.$id"] = category_id
+    if diet_id: query_filters["diet.$id"] = diet_id
         
-    # 3. Execute the combined query
-    # We use .find(filter_conditions) which accepts a raw Mongo query dict
-    recipes = await Recipe.find(filter_conditions, fetch_links=True).to_list()
+    raw_recipes = await Recipe.find(query_filters, fetch_links=True).to_list()
     
-    # ... (the 'if not recipes' check you removed is still good to keep removed) ...
-    
-    return recipes
+    if not raw_recipes:
+        return []
+
+    # STAGE 2: Gemini LLM Validation
+    validation_tasks = [validate_recipe_with_gemini(r, clean_query) for r in raw_recipes]
+    validation_results = await asyncio.gather(*validation_tasks)
+
+    # Filter out recipes that Gemini marked as False
+    final_recipes = [
+        raw_recipes[i] for i in range(len(raw_recipes)) 
+        if validation_results[i] is True
+    ]
+
+    return final_recipes
 
 #Fetch details about a recipe
 @recipe.get("/recipe/{recipe_id}", response_model=Recipe)
@@ -69,16 +124,16 @@ async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_
     except ValidationError:
         raise HTTPException(status_code=400, detail="Invalid recipe ID format")
 
-    recipe = await Recipe.get(recipe_obj_id, fetch_links=True)
+    fetched_recipe = await Recipe.get(recipe_obj_id, fetch_links=True)
     
-    if not recipe:
+    if not fetched_recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
     if current_user:
         # To avoid spamming the DB, only log if it hasn't been logged in the last hour
         one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
         existing_view = await UserViewHistory.find_one(
-            UserViewHistory.user == current_user,
+            UserViewHistory.user.id == current_user.id,
             UserViewHistory.recipe.id == recipe_obj_id,
             UserViewHistory.viewed_at > one_hour_ago
         )
@@ -86,39 +141,27 @@ async def get_recipe(recipe_id: str, current_user: Optional[User] = Depends(get_
         if not existing_view:
             try:
                 # Create and save the view history record
-                view_log = UserViewHistory(user=current_user, recipe=recipe)
+                view_log = UserViewHistory(user=current_user, recipe=fetched_recipe)
                 await view_log.insert()
-                print(f"User {current_user.user_name} viewed recipe {recipe.name}")
+                print(f"User {current_user.user_name} viewed recipe {fetched_recipe.name}")
             except Exception as e:
                 # Fail silently, logging the view is not critical
                 print(f"Error logging view history: {e}")
     
-
-    return recipe
+    return fetched_recipe
     
-
-
 @recipe.post("/create_recipe", status_code=status.HTTP_201_CREATED)
-async def create_recipe(recipe_in: RecipeIn): # Use the RecipeIn model
-    # Check for duplicate name
+async def create_recipe(recipe_in: RecipeIn): 
     if await Recipe.find_one(Recipe.name == recipe_in.name):
         raise HTTPException(status_code=400, detail="Recipe already exists")
     
-    # --- Verify the Links ---
-    # Find the documents to link
     cuisine = await Cuisine.get(recipe_in.cuisine_id)
-    if not cuisine:
-        raise HTTPException(status_code=404, detail="Cuisine not found")
-        
     category = await Category.get(recipe_in.category_id)
-    if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
-        
     diet = await Diet.get(recipe_in.diet_id)
-    if not diet:
-        raise HTTPException(status_code=404, detail="Diet not found")
+    
+    if not all([cuisine, category, diet]):
+         raise HTTPException(status_code=404, detail="Relational data missing")
 
-    # Create the new Recipe document using the linked objects
     new_recipe = Recipe(
         name=recipe_in.name,
         cuisine=cuisine,
@@ -128,9 +171,8 @@ async def create_recipe(recipe_in: RecipeIn): # Use the RecipeIn model
         ingredients=recipe_in.ingredients,
         description=recipe_in.description,
         image_url=recipe_in.image_url
+        # Embedding logic removed since we now use Gemini natively!
     )
     
-    # Insert the new document
     await new_recipe.insert()
-    
     return {"message": "Recipe created successfully", "recipe_id": str(new_recipe.id)}

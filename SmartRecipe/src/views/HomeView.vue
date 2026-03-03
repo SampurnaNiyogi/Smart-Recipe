@@ -31,6 +31,7 @@
         </v-text-field>
       </v-col>
     </v-row>
+
     <div v-if="showingSearchResults">
       <v-row class="mt-8">
         <v-col cols="12" class="d-flex justify-space-between align-center">
@@ -52,44 +53,37 @@
          </v-col>
       </v-row>
     </div>
-    <div v-else>
-      <v-row v-if="error" class="mt-8">
-        <v-col cols="12">
-          <v-alert type="error" outlined>{{ error }}</v-alert>
+
+    <v-row class="mt-8" v-if="!loadingSeasonal && seasonalRecipes.length > 0">
+       <v-col cols="12">
+          <h3 class="text-h5">Seasonal Suggestions</h3>
+          <v-divider class="my-4"></v-divider>
         </v-col>
-      </v-row>
+        <v-col v-for="recipe in seasonalRecipes" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
+          <v-card @click="$router.push(`/recipe/details/${recipe._id}`)">
+            <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
+            <v-card-title>{{ recipe.name }}</v-card-title>
+            <v-card-subtitle>{{ recipe.cuisine?.name }}</v-card-subtitle>
+          </v-card>
+        </v-col>
+    </v-row>
 
-      <v-row class="mt-8" v-if="!loadingSeasonal && seasonalRecipes.length > 0">
-         <v-col cols="12">
-            <h3 class="text-h5">Seasonal Suggestions</h3>
-            <v-divider class="my-4"></v-divider>
-          </v-col>
-          <v-col v-for="recipe in seasonalRecipes" :key="recipe._id" cols="12" sm="6" md="4" lg="3">
-            <v-card @click = "$router.push(`/recipe/details/${recipe._id}`)">
-              <v-img :src="recipe.image_url || 'https://placehold.co/400x300/E0F2F7/00695C?text=No+Image'" height="150px" cover />
-              <v-card-title>{{ recipe.name }}</v-card-title>
-              <v-card-subtitle>{{ recipe.cuisine?.name }}</v-card-subtitle>
-            </v-card>
-          </v-col>
-      </v-row>
+    <v-row v-if="loadingRecipes || loadingSeasonal" class="mt-8">
+       <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
+          <v-skeleton-loader type="card"></v-skeleton-loader>
+        </v-col>
+    </v-row>
 
-      <v-row v-if="loadingRecipes || loadingSeasonal || loadingHistory || loadingPreferred" class="mt-8">
-         <v-col v-for="n in 4" :key="n" cols="12" sm="6" md="4" lg="3">
-            <v-skeleton-loader type="card"></v-skeleton-loader>
-          </v-col>
-      </v-row>
+    <v-row class="mt-12">
+       <v-col class="text-center">
+          <v-btn color="teal" @click="goToRecipes">View All Recipes</v-btn>
+        </v-col>
+    </v-row>
 
-      <v-row class="mt-12">
-         <v-col class="text-center">
-            <v-btn color="teal" @click="goToRecipes">View All Recipes</v-btn>
-          </v-col>
-      </v-row>
-    </div>
   </v-container>
 </template>
 
 <script>
-// ... (Your <script> section is perfect, no changes needed)
 import { useAuthStore } from '../stores/auth';
 
 export default {
@@ -104,10 +98,10 @@ export default {
       loadingSeasonal: false,
       searchQuery: '',
       error: null,
-      displayedSearchQuery: '', // To keep query visible while searching
+      displayedSearchQuery: '', 
       searchResults: [],
       loadingSearch: false,
-      showingSearchResults: false // Flag to toggle view
+      showingSearchResults: false 
     }
   },
   computed: {
@@ -116,7 +110,6 @@ export default {
      }
   },
   async mounted() {
-    // Fetch all data in parallel for a faster load time
     Promise.all([
       this.fetchUserProfile(),
       this.fetchSeasonalRecipes(),
@@ -150,7 +143,6 @@ export default {
         this.seasonalRecipes = await response.json();
       } catch (err) {
         console.error("Error fetching seasonal recipes:", err.message);
-        // Do not set the main error for this non-critical feature
       } finally {
         this.loadingSeasonal = false;
       }
@@ -158,24 +150,19 @@ export default {
     goToRecipes() {
       this.$router.push('/recipes');
     },
-    performSearch() {
-      if (this.searchQuery.trim()) {
-        this.$router.push({ path: '/recipes', query: { q: this.searchQuery } });
-        this.searchQuery = ''; // Clear search bar after search
-      }
-    },
+    // Kept only ONE performSearch function
     async performSearch() {
       const query = this.searchQuery.trim();
       if (!query) {
-        this.clearSearch(); // If search is empty, clear results
+        this.clearSearch(); 
         return;
       }
 
       this.loadingSearch = true;
       this.showingSearchResults = true;
-      this.displayedSearchQuery = query; // Store query for display
+      this.displayedSearchQuery = query; 
       this.searchResults = [];
-      this.error = null; // Clear previous main errors
+      this.error = null; 
 
       const authStore = useAuthStore();
       const token = authStore.token;
@@ -203,23 +190,19 @@ export default {
 
       } catch (err) {
         console.error("Error performing search:", err.message);
-        this.error = `Could not perform search: ${err.message}`; // Show error
-        this.searchResults = []; // Ensure results are empty on error
+        this.error = `Could not perform search: ${err.message}`; 
+        this.searchResults = []; 
       } finally {
         this.loadingSearch = false;
       }
     },
-
-    // --- NEW clearSearch METHOD ---
     clearSearch() {
       this.searchQuery = '';
       this.displayedSearchQuery = '';
       this.searchResults = [];
       this.showingSearchResults = false;
       this.loadingSearch = false;
-      this.error = null; // Clear search-related errors
-      // Note: We don't need to re-fetch recommendations here unless desired.
-      // They will still be loaded from the initial `mounted()` call.
+      this.error = null; 
     }
   }
 }

@@ -2,91 +2,119 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from models.users import User
 from routes.authentication import get_current_user
-
-# Import the services you've already built!
 from services.substitutes import get_substitutes
 from services.recommendations import get_seasonal_suggestions
-from models.recipe import Recipe # We'll use this to search
+from models.recipe import Recipe
+from google import genai
+import os
+import json
+import re
 
-# --- Pydantic Models for the Request/Response ---
+# Initialize the new Client
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 class ChatQuery(BaseModel):
-    """The user's message"""
     query: str
 
 class ChatResponse(BaseModel):
-    """The bot's response"""
     response: str
 
-# --- The Chatbot Router ---
-
 chatbot_router = APIRouter()
+
+async def analyze_intent(query: str) -> dict:
+    """Uses Gemini to classify the user's intent and extract keywords."""
+    prompt = f"""
+    You are the brain of a Smart Recipe App chatbot. Analyze the user's message: "{query}"
+    
+    Categorize it into exactly one of these intents:
+    - "find_recipe": User wants to cook something, looking for a recipe, or has specific ingredients.
+    - "get_substitute": User needs an alternative for a specific ingredient.
+    - "get_seasonal": User is asking for seasonal food suggestions.
+    - "general_chat": Greetings, thank yous, or general cooking questions not requiring a database search.
+
+    Extract the main subject as the "keyword".
+    
+    Respond STRICTLY with valid JSON. Do not include markdown formatting like ```json.
+    Format: {{"intent": "intent_name", "keyword": "extracted_subject"}}
+    """
+    try:
+        # NEW SDK SYNTAX
+        response = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        clean_json = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean_json)
+    except Exception as e:
+        print(f"Intent parsing error: {e}")
+        return {"intent": "general_chat", "keyword": query}
 
 @chatbot_router.post(
     "/chatbot/query",
     response_model=ChatResponse,
-    summary="Process a chatbot query"
+    summary="Process a chatbot query with Gemini"
 )
 async def handle_chat_query(
     request: ChatQuery,
     current_user: User = Depends(get_current_user)
 ):
-    """
-    This is the main "brain" of the chatbot.
-    It takes a user's query and tries to match it to an intent.
+    query = request.query
     
-    This is a simple rule-based example. A more advanced bot
-    would use NLP libraries like spaCy or Rasa.
-    """
-    query = request.query.lower().strip()
+    # Step 1: Understand the intent
+    analysis = await analyze_intent(query)
+    intent = analysis.get("intent")
+    keyword = analysis.get("keyword", "")
     
-    # --- Intent 1: Greeting ---
-    if query in ["hi", "hello", "hey"]:
-        return ChatResponse(response=f"Hello, {current_user.user_name}! How can I help you with recipes today?")
+    print(f"DEBUG - Intent: {intent} | Keyword: {keyword}") # Helpful for terminal debugging
+    
+    context_data = ""
 
-    # --- Intent 2: Ask for Substitutes ---
-    if "substitute for" in query or "replace" in query:
-        # Simple parser: find the word after "substitute for"
-        try:
-            ingredient = query.split("substitute for")[-1].strip()
-            if not ingredient:
-                ingredient = query.split("replace")[-1].strip()
-
-            if ingredient:
-                substitutes = get_substitutes(ingredient)
-                if substitutes:
-                    sub_list = ", ".join(substitutes)
-                    return ChatResponse(response=f"Possible substitutes for {ingredient} are: {sub_list}.")
-                else:
-                    return ChatResponse(response=f"Sorry, I don't have any common substitutes listed for {ingredient}.")
-            else:
-                 return ChatResponse(response="What ingredient do you need a substitute for?")
-        except Exception:
-            return ChatResponse(response="I'm not sure what ingredient you're asking about. Try 'What is a substitute for butter?'.")
-
-    # --- Intent 3: Ask for Seasonal Recipes ---
-    if "seasonal" in query or "in season" in query:
+    # Step 2: Fetch data based on the intent
+    if intent == "find_recipe":
+        regex_pattern = re.compile(keyword, re.IGNORECASE)
+        recipes = await Recipe.find({"name": regex_pattern}).limit(3).to_list()
+        if recipes:
+            context_data = "Found these recipes in the database: " + ", ".join([r.name for r in recipes])
+        else:
+            context_data = f"No recipes found in the database for '{keyword}'."
+            
+    elif intent == "get_substitute":
+        substitutes = get_substitutes(keyword)
+        if substitutes:
+            context_data = f"Database substitutes for {keyword}: {', '.join(substitutes)}."
+        else:
+            context_data = f"No substitutes found in the database for {keyword}."
+            
+    elif intent == "get_seasonal":
         suggestions = await get_seasonal_suggestions(limit=3)
         if suggestions:
-            names = [r.name for r in suggestions]
-            return ChatResponse(response=f"Here are some popular seasonal recipes: {', '.join(names)}. Would you like to know more about one?")
+            context_data = "Seasonal suggestions from database: " + ", ".join([r.name for r in suggestions])
         else:
-            return ChatResponse(response="I couldn't find any seasonal recipes right now.")
+            context_data = "No seasonal recipes found right now."
 
-    # --- Intent 4: Ask for a specific recipe ---
-    if "how to make" in query or "recipe for" in query:
-        search_term = query.replace("how to make", "").replace("recipe for", "").strip()
-        
-        # Use your existing text search capability
-        recipe = await Recipe.find_one({"$text": {"$search": search_term}}, fetch_links=True)
-        
-        if recipe:
-            # Respond with a summary and link (the frontend would need to handle this)
-            # For a pure text bot, we can give instructions.
-            return ChatResponse(response=f"I found a recipe for {recipe.name}! Here are the instructions: {recipe.instructions}")
-        else:
-            return ChatResponse(response=f"Sorry, I couldn't find a recipe matching '{search_term}'.")
-
-    # --- Fallback Response ---
-    else:
-        return ChatResponse(response="I'm not sure how to help with that. You can ask me for recipe substitutes, seasonal ideas, or how to make a specific dish.")
+    # Step 3: Generate a friendly response
+    response_prompt = f"""
+    You are a friendly, helpful culinary assistant for a Smart Recipe App. 
+    
+    User details: Name is {current_user.user_name}.
+    User message: "{query}"
+    System Intent detected: {intent}
+    Data retrieved from our app's database: "{context_data}"
+    
+    Instructions:
+    1. Always start your response with a natural, complete greeting that includes the user's name (e.g., "Hi {current_user.user_name}!" or "Hello {current_user.user_name},").
+    2. Write a conversational, helpful, and concise response. 
+    3. If the database provided data, present it naturally. 
+    4. If the database had no data, politely inform them and offer general cooking advice.
+    """
+    
+    try:
+        # NEW SDK SYNTAX
+        final_response = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=response_prompt
+        )
+        return ChatResponse(response=final_response.text.strip())
+    except Exception as e:
+        print(f"Chat generation error: {e}")
+        return ChatResponse(response="I'm having a little trouble thinking right now. Please try again!")

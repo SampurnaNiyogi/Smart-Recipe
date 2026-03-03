@@ -51,6 +51,8 @@ class Recipe(Document):
     description: Optional[str] = None
     image_url: Optional[str] = None
     
+    embedding: Optional[List[float]] = None
+    
     class Settings:
         name = "recipes"
         
