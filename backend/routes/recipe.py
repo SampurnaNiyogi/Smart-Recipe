@@ -1,21 +1,29 @@
 from fastapi import APIRouter, HTTPException, Query, status, Depends
-from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn
+from models.recipe import Recipe, Cuisine, Category, Diet, RecipeIn, Comment, Reply
 from typing import List, Optional
 from beanie import PydanticObjectId 
 from models.users import User
 from routes.authentication import get_current_user
 from models.history import UserViewHistory 
 import datetime
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from services.substitutes import get_substitutes
 import asyncio
 import re
 import os
 from google import genai
+from uuid import UUID
+from beanie.operators import In
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 recipe = APIRouter()
+
+class CommentIn(BaseModel):
+    text: str
+
+class ReplyIn(BaseModel):
+    text: str
 
 @recipe.get("/recipe/substitutes/{ingredient_name}", response_model=List[str])
 async def get_ingredient_substitutes(
@@ -57,17 +65,19 @@ async def get_all_recipes(
     cuisine_id: Optional[PydanticObjectId] = Query(None),
     category_id: Optional[PydanticObjectId] = Query(None),
     diet_id: Optional[PydanticObjectId] = Query(None),
-    search_query: Optional[str] = Query(None)
+    search_query: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user) # Require authentication here
 ):
+    # Rule to exclude recipes made by the current user
+    exclude_my_recipes = Recipe.creator.id != current_user.id
+
     if not search_query:
-        queries = []
+        queries = [exclude_my_recipes]
         if cuisine_id: queries.append(Recipe.cuisine.id == cuisine_id)
         if category_id: queries.append(Recipe.category.id == category_id)
         if diet_id: queries.append(Recipe.diet.id == diet_id)
             
-        if queries:
-            return await Recipe.find(*queries, fetch_links=True).to_list()
-        return await Recipe.find_all(fetch_links=True).to_list()
+        return await Recipe.find(*queries, fetch_links=True).to_list()
 
     clean_query = re.sub(r'\b(recipe|recipes|dish|how to make)\b', '', search_query, flags=re.IGNORECASE).strip().lower()
     if not clean_query:
@@ -87,7 +97,8 @@ async def get_all_recipes(
     if category_id: query_filters["category.$id"] = category_id
     if diet_id: query_filters["diet.$id"] = diet_id
         
-    raw_recipes = await Recipe.find(query_filters, fetch_links=True).to_list()
+    # Apply both the exclude rule and the search query rule
+    raw_recipes = await Recipe.find(exclude_my_recipes, query_filters, fetch_links=True).to_list()
     
     if not raw_recipes:
         return []
@@ -212,7 +223,6 @@ async def delete_recipe(
 
 @recipe.get("/recently-viewed", response_model=List[Recipe])
 async def get_recently_viewed(current_user: User = Depends(get_current_user)):
-    # 1. Fetch the 4 most recent view history records
     history_records = await UserViewHistory.find(
         UserViewHistory.user.id == current_user.id
     ).sort("-viewed_at").limit(4).to_list()
@@ -220,19 +230,156 @@ async def get_recently_viewed(current_user: User = Depends(get_current_user)):
     if not history_records:
         return []
         
-    # 2. Safely extract the ObjectIds from the Link objects
     recipe_ids = []
     for record in history_records:
         if record.recipe:
-            # Handle both unresolved Link and resolved Document structures
             rid = record.recipe.ref.id if hasattr(record.recipe, "ref") else record.recipe.id
             recipe_ids.append(rid)
             
-    # 3. Fetch the actual fully populated recipes (resolving creator, cuisine, etc.)
     recipes = await Recipe.find({"_id": {"$in": recipe_ids}}, fetch_links=True).to_list()
     
-    # 4. Re-sort the recipes to match the chronological history order
     recipe_dict = {str(r.id): r for r in recipes}
     sorted_recent_recipes = [recipe_dict[str(rid)] for rid in recipe_ids if str(rid) in recipe_dict]
     
     return sorted_recent_recipes
+
+# --- NEW COMMENT & CREATOR ROUTES ---
+
+@recipe.get("/recipe/{recipe_id}/comments", response_model=List[Comment])
+async def get_recipe_comments(recipe_id: str):
+    try:
+        recipe_obj_id = PydanticObjectId(recipe_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid recipe ID format")
+        
+    comments = await Comment.find(Comment.recipe_id == recipe_obj_id).to_list()
+    return comments
+
+@recipe.post("/recipe/{recipe_id}/comment")
+async def add_comment(recipe_id: str, comment_in: CommentIn, current_user: User = Depends(get_current_user)):
+    try:
+        recipe_obj_id = PydanticObjectId(recipe_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid recipe ID format")
+
+    new_comment = Comment(
+        recipe_id=recipe_obj_id,
+        user_id=str(current_user.uuid), 
+        user_name=current_user.user_name,
+        text=comment_in.text
+    )
+    
+    await new_comment.insert()
+    return {"message": "Comment added successfully", "comment": new_comment}
+
+@recipe.post("/recipe/{recipe_id}/comment/{comment_id}/reply")
+async def add_reply(recipe_id: str, comment_id: str, reply_in: ReplyIn, current_user: User = Depends(get_current_user)):
+    try:
+        comment_obj_id = PydanticObjectId(comment_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid comment ID format")
+
+    target_comment = await Comment.get(comment_obj_id)
+    if not target_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    new_reply = Reply(
+        user_id=str(current_user.uuid),
+        user_name=current_user.user_name,
+        text=reply_in.text
+    )
+    
+    if target_comment.replies is None:
+        target_comment.replies = []
+        
+    target_comment.replies.append(new_reply)
+    await target_comment.save() 
+    
+    return {"message": "Reply added successfully", "reply": new_reply}
+
+@recipe.get("/recipe/creator/{creator_id}", response_model=List[Recipe])
+async def get_creator_recipes(creator_id: str):
+    try:
+        user_uuid = UUID(creator_id)
+        user = await User.find_one(User.uuid == user_uuid)
+        if not user:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        
+        creator_obj_id = user.id 
+        
+    except ValueError:
+        try:
+            creator_obj_id = PydanticObjectId(creator_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid creator ID format")
+            
+    recipes = await Recipe.find(Recipe.creator.id == creator_obj_id, fetch_links=True).to_list()
+    return recipes
+
+
+@recipe.get("/notifications", response_model=List[dict])
+async def get_notifications(current_user: User = Depends(get_current_user)):
+    # Find all recipes created by this user
+    my_recipes = await Recipe.find(Recipe.creator.id == current_user.id).to_list()
+    if not my_recipes:
+        return []
+        
+    my_recipe_ids = [r.id for r in my_recipes]
+    recipe_dict = {r.id: r.name for r in my_recipes}
+    
+    # Find all comments on these recipes
+    all_comments = await Comment.find(In(Comment.recipe_id, my_recipe_ids)).to_list()
+    
+    notifications = []
+    
+    for c in all_comments:
+        # Check main comment
+        if not c.is_read and c.user_id != str(current_user.uuid):
+            notifications.append({
+                "id": str(c.id),
+                "recipe_id": str(c.recipe_id),
+                "recipe_name": recipe_dict.get(c.recipe_id, "Your Recipe"),
+                "user_name": c.user_name,
+                "text": c.text,
+                "created_at": c.created_at,
+                "type": "comment"
+            })
+        # Check nested replies
+        for r in c.replies:
+            if not r.is_read and r.user_id != str(current_user.uuid):
+                notifications.append({
+                    "id": r.id,
+                    "recipe_id": str(c.recipe_id),
+                    "recipe_name": recipe_dict.get(c.recipe_id, "Your Recipe"),
+                    "user_name": r.user_name,
+                    "text": r.text,
+                    "created_at": r.created_at,
+                    "type": "reply"
+                })
+                
+    # Sort by newest first
+    notifications.sort(key=lambda x: x["created_at"], reverse=True)
+    return notifications
+
+@recipe.put("/notifications/mark-all-read")
+async def mark_all_read(current_user: User = Depends(get_current_user)):
+    my_recipes = await Recipe.find(Recipe.creator.id == current_user.id).to_list()
+    if not my_recipes:
+        return {"message": "No recipes"}
+        
+    my_recipe_ids = [r.id for r in my_recipes]
+    all_comments = await Comment.find(In(Comment.recipe_id, my_recipe_ids)).to_list()
+    
+    for c in all_comments:
+        changed = False
+        if not c.is_read and c.user_id != str(current_user.uuid):
+            c.is_read = True
+            changed = True
+        for r in c.replies:
+            if not r.is_read and r.user_id != str(current_user.uuid):
+                r.is_read = True
+                changed = True
+        if changed:
+            await c.save()
+            
+    return {"message": "All marked as read"}

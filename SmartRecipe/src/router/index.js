@@ -7,6 +7,7 @@ import ProfileView from '@/views/ProfileView.vue'
 import ChatbotView from '@/views/ChatbotView.vue'
 import RecipeDetailView from '@/views/RecipeDetailView.vue'
 import MyRecipesView from '@/views/MyRecipesView.vue'
+import CreatorProfileView from '@/views/CreatorProfileView.vue'
 import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
@@ -16,6 +17,11 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView
+    },
+    {
+      path: '/creator/:id',
+      name: 'creator-profile',
+      component: CreatorProfileView,
     },
     {
       path: '/login',

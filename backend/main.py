@@ -16,6 +16,7 @@ from routes.recommendations import recommendation_router
 from services.recommendations import build_recommendation_model
 from contextlib import asynccontextmanager
 from models.history import UserViewHistory
+from models.recipe import Comment
 load_dotenv()
 
 @asynccontextmanager
@@ -40,7 +41,8 @@ async def lifespan(app: FastAPI):
             Cuisine,
             Diet,
             Recipe,
-            UserViewHistory
+            UserViewHistory,
+            Comment
         ]
     )
     print("Beanie initialized.")

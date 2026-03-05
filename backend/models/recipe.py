@@ -5,8 +5,30 @@ from typing_extensions import Annotated
 from beanie import Document, Link, PydanticObjectId
 from pymongo import IndexModel, TEXT
 from models.users import User
+from datetime import datetime
+from uuid import uuid4
 
 PyObjectId = Annotated[str, BeforeValidator(str)]
+
+class Reply(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: str
+    user_name: str
+    text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_read: bool = False # NEW
+
+class Comment(Document):
+    recipe_id: PydanticObjectId
+    user_id: str
+    user_name: str
+    text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    replies: List[Reply] = []
+    is_read: bool = False # NEW
+
+    class Settings:
+        name = "comments"
 
 class RecipeIn(BaseModel):
     name: str

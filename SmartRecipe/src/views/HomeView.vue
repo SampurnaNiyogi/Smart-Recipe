@@ -140,7 +140,7 @@ export default {
   name: 'HomeView',
   data() {
     return {
-      userData: { user_name: 'there' },
+      userData: { full_name: 'there' },
       recipes: [],
       recentRecipes: [],
       seasonalRecipes: [],
@@ -158,7 +158,7 @@ export default {
   },
   computed: {
      userGreetingName() {
-       return this.userData?.user_name || 'there';
+       return this.userData?.full_name || 'there';
      }
   },
   async mounted() {
